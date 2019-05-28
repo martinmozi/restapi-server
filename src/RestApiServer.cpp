@@ -22,9 +22,8 @@ namespace libRestApi
         std::string basicUrl(basicUrl_);
         httpServer_->start(port_, [basicUrl, httpHandler](libRestApi::HttpMethod method, const std::string & url, const std::string & request)->std::string
         {
-            // filter according url
-            // some json checks
-                return httpHandler(method, url, request);
+            std::string _url = url.substr(basicUrl.size());
+            return httpHandler(method, _url, request);
         });
     }
 
