@@ -1,0 +1,14 @@
+# Config file for the Rest API server package.
+#
+# It defines the following variables:
+#  RESTAPISERVER_VERSION      - version of SkyBaseLog
+#  RESTAPISERVER_FOUND        - set to true
+#  RESTAPISERVER_INCLUDE_DIRS - include directories for Rest API server
+#  RESTAPISERVER_LIBRARY_DIR  - library directories for Rest API server
+#  RESTAPISERVER_LIBRARIES    - libraries to link against
+
+set(RESTAPISERVER_VERSION "@PROJECT_VERSION@")
+set(RESTAPISERVER_FOUND "TRUE")
+set(RESTAPISERVER_INCLUDE_DIRS "@CMAKE_INSTALL_FULL_INCLUDEDIR@")
+set(RESTAPISERVER_LIBRARY_DIR "@CMAKE_INSTALL_FULL_LIBDIR@")
+set(RESTAPISERVER_LIBRARIES restapi-server)
