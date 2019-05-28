@@ -210,7 +210,7 @@ namespace
             if (ec)
                 fail(ec, "accept");
             else
-                boost::asio::spawn(acceptor.get_executor().context(), std::bind(
+                boost::asio::spawn(acceptor.get_executor(), std::bind(
                     &do_session,
                     std::move(socket),
                     std::ref(ctx),

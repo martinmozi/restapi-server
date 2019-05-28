@@ -2,7 +2,7 @@
 
 #include <boost/beast/core.hpp>
 #include <thread>
-#include "include/restapi/IRestApi.h"
+#include "include/restapi-server/IRestApiServer.h"
 #include "jsonVariant.hpp"
 
 namespace libRestApi

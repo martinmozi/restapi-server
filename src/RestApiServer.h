@@ -1,14 +1,14 @@
 #pragma once
 
-#include "include/restapi/IRestApi.h"
+#include "include/restapi-server/IRestApiServer.h"
 
 namespace libRestApi
 {
     class HttpServer;
-    class RestApi : public IRestApi
+    class RestApiServer : public IRestApiServer
     {
     public:
-        RestApi(int port, const std::string& basicUrl);
+        RestApiServer(int port, const std::string& basicUrl);
         void start(HttpHandler&& httpHandler) override;
 
     protected:

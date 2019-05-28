@@ -1,4 +1,4 @@
-#include "RestApi.h"
+#include "RestApiServer.h"
 #include "jsonVariant.hpp"
 #include "HttpServer.h"
 
@@ -10,14 +10,13 @@ std::string tmpDir("/tmp");
 
 namespace libRestApi
 {
-    RestApi::RestApi(int port, const std::string& basicUrl)
+    RestApiServer::RestApiServer(int port, const std::string& basicUrl)
     :   port_(port),
         basicUrl_(basicUrl)
     {
-
     }
 
-    void RestApi::start(HttpHandler&& httpHandler)
+    void RestApiServer::start(HttpHandler&& httpHandler)
     {
         httpServer_.reset(new HttpServer("/tmp"));
         std::string basicUrl(basicUrl_);
@@ -29,13 +28,13 @@ namespace libRestApi
         });
     }
 
-    void RestApi::stop()
+    void RestApiServer::stop()
     {
         httpServer_.reset(nullptr);
     }
 
-    std::unique_ptr<IRestApi> createRestApiServer(int port, const std::string& basicUrl)
+    std::unique_ptr<IRestApiServer> createRestApiServer(int port, const std::string& basicUrl)
     {
-        return std::make_unique<RestApi>(port, basicUrl);
+        return std::make_unique<RestApiServer>(port, basicUrl);
     }
 }
