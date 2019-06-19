@@ -13,6 +13,8 @@ set(BOOST_MIN_VERSION "1.70.0")
 find_package(Boost ${BOOST_MIN_VERSION} COMPONENTS system coroutine REQUIRED)
 include_directories(${Boost_INCLUDE_DIR})
 
+add_definitions(-D__RAPID_JSON_BACKEND)
+
 add_library(restapi-server SHARED
     src/HttpServer.cpp
     src/RestApiServer.cpp
