@@ -252,10 +252,9 @@ void libRestApi::HttpServer::start(uint16_t port, HttpHandler httpHandler)
     }
 
     for (const auto & workerThread : workers_)
-    {
         handlers_.insert(std::make_pair(workerThread.get_id(), httpHandler));
-    }
     
+    handlers_.insert(std::make_pair(std::this_thread::get_id(), httpHandler));
     ioc_.run();
 }
 
