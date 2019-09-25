@@ -31,7 +31,7 @@ namespace
     template<class Body, class Allocator, class Send>
     void handle_request(libRestApi::HttpServer& server, boost::beast::string_view doc_root, http::request<Body, http::basic_fields<Allocator>> && req, Send && send)
     {
-        static auto const bad_request = [&req](boost::beast::string_view why)
+        static auto const bad_request = [req](boost::beast::string_view why)
         {
             http::response<http::string_body> res{ http::status::bad_request, req.version() };
             res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
@@ -42,7 +42,7 @@ namespace
             return res;
         };
 
-        static auto const ok_request = [&req](boost::beast::string_view why)
+        static auto const ok_request = [req](boost::beast::string_view why)
         {
             http::response<http::string_body> res{ http::status::ok, req.version() };
             res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
