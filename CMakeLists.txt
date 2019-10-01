@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.12)
 
 project(restapi-server VERSION 1.0.0 DESCRIPTION "http server for easy restapi usage")
 
