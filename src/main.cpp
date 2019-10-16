@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "include/restapi/IRestApi.h"
+#include "../include/restapi-server/IRestApiServer.h"
 
 int main(int argc, char** argv)
 {

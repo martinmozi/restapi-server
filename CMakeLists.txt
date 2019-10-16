@@ -27,6 +27,7 @@ add_executable(restapi-server-app
 )
 
 target_link_libraries(restapi-server LINK_PUBLIC ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES})
+target_link_libraries(restapi-server-app ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES})
 
 set_target_properties(restapi-server PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(restapi-server PROPERTIES SOVERSION 1)

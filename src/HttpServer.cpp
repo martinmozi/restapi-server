@@ -271,7 +271,7 @@ void libRestApi::HttpServer::stop()
 
 libRestApi::HttpServer::HandlerPair& libRestApi::HttpServer::httpHandlerAcquire()
 {
-    std::lock_guard lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
 
     while (true)
     {
@@ -290,6 +290,6 @@ libRestApi::HttpServer::HandlerPair& libRestApi::HttpServer::httpHandlerAcquire(
 
 void libRestApi::HttpServer::httpHandlerRelease(libRestApi::HttpServer::HandlerPair& handlerPair)
 {
-    std::lock_guard lock(mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
     handlerPair.locked = false;
 }
