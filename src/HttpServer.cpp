@@ -29,9 +29,9 @@ namespace
     // contents of the request, so the interface requires the
     // caller to pass a generic lambda for receiving the response.
     template<class Body, class Allocator, class Send>
-    void handle_request(libRestApi::HttpServer& server, boost::beast::string_view doc_root, http::request<Body, http::basic_fields<Allocator>> && req, Send && send)
+    void handle_request(libRestApi::HttpServer& server, boost::beast::string_view /*doc_root*/, http::request<Body, http::basic_fields<Allocator>> && req, Send && send)
     {
-        static auto const bad_request = [&req](boost::beast::string_view why)
+        auto const bad_request = [&req](boost::beast::string_view why)
         {
             http::response<http::string_body> res{ http::status::bad_request, req.version() };
             res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
@@ -42,7 +42,7 @@ namespace
             return res;
         };
 
-        static auto const ok_request = [&req](boost::beast::string_view why)
+        auto const ok_request = [&req](boost::beast::string_view why)
         {
             http::response<http::string_body> res{ http::status::ok, req.version() };
             res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
@@ -77,16 +77,10 @@ namespace
                 return send(bad_request("Unsupported http method"));
         }
 
-        libRestApi::HttpHandler* pHttpHandler = server.httpHandler(std::this_thread::get_id());
-        if (pHttpHandler)
-        {
-            std::string response = (*pHttpHandler)(httpMethod, url, payload);
-            return send(ok_request(response));
-        }
-        else
-        {
-            return send(bad_request("cc"));
-        }
+        auto & httpHandlerPair = server.httpHandlerAcquire();
+        std::string response = (httpHandlerPair.httpHandler)(httpMethod, url, payload);
+        server.httpHandlerRelease(httpHandlerPair);
+        return send(ok_request(response));
     }
 
     //------------------------------------------------------------------------------
@@ -226,8 +220,8 @@ namespace
 
 libRestApi::HttpServer::HttpServer(const std::string& docRoot)
 :   threads_(std::thread::hardware_concurrency()),
-    docRoot_(std::make_shared<std::string>(docRoot)),
-    ioc_(threads_)
+    ioc_(threads_),
+    docRoot_(std::make_shared<std::string>(docRoot))
 {
 }
 
@@ -251,11 +245,14 @@ void libRestApi::HttpServer::start(uint16_t port, HttpHandler httpHandler)
         });
     }
 
-    for (const auto & workerThread : workers_)
+    for (int i = 0; i < threads_; i++)
     {
-        handlers_.insert(std::make_pair(workerThread.get_id(), httpHandler));
+        libRestApi::HttpServer::HandlerPair p;
+        p.httpHandler = httpHandler;
+        p.locked = false;
+        handlers_.push_back(std::move(p));
     }
-    
+
     ioc_.run();
 }
 
@@ -272,11 +269,27 @@ void libRestApi::HttpServer::stop()
     workers_.clear();
 }
 
-libRestApi::HttpHandler* libRestApi::HttpServer::httpHandler(std::thread::id threadId)
+libRestApi::HttpServer::HandlerPair& libRestApi::HttpServer::httpHandlerAcquire()
 {
-    auto it = handlers_.find(threadId);
-    if (it != handlers_.end())
-        return &it->second;
+    std::lock_guard lock(mutex_);
 
-    return nullptr;
+    while (true)
+    {
+        for (auto & handlerPair : handlers_)
+        {
+            if (!handlerPair.locked)
+            {
+                handlerPair.locked = true;
+                return handlerPair;
+            }
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+}
+
+void libRestApi::HttpServer::httpHandlerRelease(libRestApi::HttpServer::HandlerPair& handlerPair)
+{
+    std::lock_guard lock(mutex_);
+    handlerPair.locked = false;
 }

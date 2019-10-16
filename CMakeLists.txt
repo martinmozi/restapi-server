@@ -20,6 +20,12 @@ add_library(restapi-server SHARED
     src/RestApiServer.cpp
 )
 
+add_executable(restapi-server-app
+    src/HttpServer.cpp
+    src/RestApiServer.cpp
+	src/main.cpp
+)
+
 target_link_libraries(restapi-server LINK_PUBLIC ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES})
 
 set_target_properties(restapi-server PROPERTIES VERSION ${PROJECT_VERSION})

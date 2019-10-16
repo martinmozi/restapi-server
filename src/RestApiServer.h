@@ -1,6 +1,6 @@
 #pragma once
 
-#include "include/restapi-server/IRestApiServer.h"
+#include "../include/restapi-server/IRestApiServer.h"
 
 namespace libRestApi
 {
