@@ -1,6 +1,5 @@
 #include "RestApiServer.h"
 #include "HttpServer.h"
-#include <jsonVariant.hpp>
 
 #ifdef WIN32
 std::string tmpDir("C:/Temp");
