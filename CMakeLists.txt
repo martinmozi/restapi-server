@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.12)
 
 project(restapi-server VERSION 1.0.0 DESCRIPTION "http server for easy restapi usage")
 
@@ -8,6 +8,7 @@ include(GNUInstallDirs) # Installation directories for `install` command and pkg
 include_directories(.)
 
 find_package(OpenSSL REQUIRED)
+find_package (Threads)
 set(Boost_NO_BOOST_CMAKE TRUE CACHE BOOL "" FORCE)
 set(BOOST_MIN_VERSION "1.70.0")
 find_package(Boost ${BOOST_MIN_VERSION} COMPONENTS system coroutine REQUIRED)
@@ -23,11 +24,11 @@ add_library(restapi-server SHARED
 add_executable(restapi-server-app
     src/HttpServer.cpp
     src/RestApiServer.cpp
-	src/main.cpp
+    src/main.cpp
 )
 
-target_link_libraries(restapi-server LINK_PUBLIC ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES})
-target_link_libraries(restapi-server-app ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES})
+target_link_libraries(restapi-server LINK_PUBLIC ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(restapi-server-app ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 
 set_target_properties(restapi-server PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(restapi-server PROPERTIES SOVERSION 1)
