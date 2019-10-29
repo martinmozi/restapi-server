@@ -17,7 +17,7 @@ namespace libRestApi
 
     void RestApiServer::start(HttpHandler&& httpHandler)
     {
-        httpServer_.reset(new HttpServer("/tmp"));
+        httpServer_.reset(new HttpServer);
         std::string basicUrl(basicUrl_);
         httpServer_->start(port_, [basicUrl, httpHandler](libRestApi::HttpMethod method, const std::string & url, const std::string & request)->std::string
         {
