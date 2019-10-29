@@ -1,20 +1,11 @@
 #include "HttpServer.h"
-
 #include "ServerCertificate.h"
 
-#include <boost/beast/core.hpp>
-#include <boost/beast/http.hpp>
-#include <boost/beast/version.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/ssl/stream.hpp>
-#include <boost/asio/spawn.hpp>
-#include <boost/config.hpp>
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
 
@@ -25,11 +16,11 @@ namespace http = boost::beast::http;    // from <boost/beast/http.hpp>
 namespace
 {
     // This function produces an HTTP response for the given
-    // request. The type of the response object depends on the
-    // contents of the request, so the interface requires the
-    // caller to pass a generic lambda for receiving the response.
+        // request. The type of the response object depends on the
+        // contents of the request, so the interface requires the
+        // caller to pass a generic lambda for receiving the response.
     template<class Body, class Allocator, class Send>
-    void handle_request(libRestApi::HttpServer& server, boost::beast::string_view /*doc_root*/, http::request<Body, http::basic_fields<Allocator>> && req, Send && send)
+    void handle_request(libRestApi::HttpServer& server, boost::beast::string_view /*doc_root*/, http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send)
     {
         auto const bad_request = [&req](boost::beast::string_view why)
         {
@@ -37,18 +28,7 @@ namespace
             res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
             res.set(http::field::content_type, "text/html");
             res.keep_alive(req.keep_alive());
-            res.body() = why.to_string();
-            res.prepare_payload();
-            return res;
-        };
-
-        auto const ok_request = [&req](boost::beast::string_view why)
-        {
-            http::response<http::string_body> res{ http::status::ok, req.version() };
-            res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-            res.set(http::field::content_type, "application/json");
-            res.keep_alive(req.keep_alive());
-            res.body() = why.to_string();
+            res.body() = std::string(why);
             res.prepare_payload();
             return res;
         };
@@ -64,164 +44,210 @@ namespace
             break;
 
         case http::verb::post:
-            {
-                payload = req.body();
-                httpMethod = libRestApi::HttpMethod::Post;
-                auto it = req.find(http::field::content_type);
-                if (it == req.end() || it->value() != "application/json")
-                    return send(bad_request("Not allowed non json Api"));
-            }
-            break;
+        {
+            payload = req.body();
+            httpMethod = libRestApi::HttpMethod::Post;
+            auto it = req.find(http::field::content_type);
+            if (it == req.end() || it->value() != "application/json")
+                return send(bad_request("Not allowed non json Api"));
+        }
+        break;
 
-            default:
-                return send(bad_request("Unsupported http method"));
+        default:
+            return send(bad_request("Unsupported http method"));
         }
 
-        auto & httpHandlerPair = server.httpHandlerAcquire();
+        auto& httpHandlerPair = server.httpHandlerAcquire();
         std::string response = (httpHandlerPair.httpHandler)(httpMethod, url, payload);
         server.httpHandlerRelease(httpHandlerPair);
-        return send(ok_request(response));
+
+        http::response<http::string_body> res{ http::status::ok, req.version() };
+        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+        res.set(http::field::content_type, "application/json");
+        res.keep_alive(req.keep_alive());
+        res.content_length(response.size());
+        res.body() = response;
+        return send(std::move(res));
     }
-
-    //------------------------------------------------------------------------------
-
-    // Report a failure
-    void fail(boost::system::error_code ec, char const* what)
+    void fail(boost::beast::error_code ec, char const* what)
     {
+        if (ec == boost::asio::ssl::error::stream_truncated)
+            return;
+
         std::cerr << what << ": " << ec.message() << "\n";
     }
 
-    // This is the C++11 equivalent of a generic lambda.
-    // The function object is used to send an HTTP message.
-    template<class Stream>
-    struct send_lambda
+    class session : public std::enable_shared_from_this<session>
     {
-        Stream& stream_;
-        bool& close_;
-        boost::system::error_code& ec_;
-        boost::asio::yield_context yield_;
+        // This is the C++11 equivalent of a generic lambda.
+        // The function object is used to send an HTTP message.
+        struct send_lambda
+        {
+            session& self_;
 
-        explicit
-            send_lambda(Stream& stream, bool& close, boost::system::error_code& ec, boost::asio::yield_context yield)
-            : stream_(stream)
-            , close_(close)
-            , ec_(ec)
-            , yield_(yield)
+            explicit
+                send_lambda(session& self)
+                : self_(self)
+            {
+            }
+
+            template<bool isRequest, class Body, class Fields>
+            void operator()(http::message<isRequest, Body, Fields>&& msg) const
+            {
+
+                auto sp = std::make_shared<http::message<isRequest, Body, Fields>>(std::move(msg));
+                self_.res_ = sp;
+
+                // Write the response
+                http::async_write(self_.stream_, *sp, boost::beast::bind_front_handler(&session::on_write, self_.shared_from_this(), sp->need_eof()));
+            }
+        };
+
+        libRestApi::HttpServer& httpServer_;
+        boost::beast::ssl_stream<boost::beast::tcp_stream> stream_;
+        boost::beast::flat_buffer buffer_;
+        std::shared_ptr<std::string const> doc_root_;
+        http::request<http::string_body> req_;
+        std::shared_ptr<void> res_;
+        send_lambda lambda_;
+
+    public:
+        explicit session(libRestApi::HttpServer& httpServer, boost::asio::ip::tcp::socket&& socket, ssl::context& ctx)
+        :   httpServer_(httpServer),
+            stream_(std::move(socket), ctx),
+            doc_root_(std::make_shared<std::string>("/tmp")),
+            lambda_(*this)
         {
         }
 
-        template<bool isRequest, class Body, class Fields>
-        void operator()(http::message<isRequest, Body, Fields>&& msg) const
+        void run()
         {
-            // Determine if we should close the connection after
-            close_ = msg.need_eof();
-
-            // We need the serializer here because the serializer requires
-            // a non-const file_body, and the message oriented version of
-            // http::write only works with const messages.
-            http::serializer<isRequest, Body, Fields> sr{ msg };
-            http::async_write(stream_, sr, yield_[ec_]);
+            boost::asio::dispatch(stream_.get_executor(), boost::beast::bind_front_handler(&session::on_run, shared_from_this()));
         }
-    };
 
-    // Handles an HTTP server connection
-    void do_session(tcp::socket & socket, ssl::context & ctx, libRestApi::HttpServer& server, std::shared_ptr<std::string const> const& doc_root, boost::asio::yield_context yield)
-    {
-        bool close = false;
-        boost::system::error_code ec;
-
-        // Construct the stream around the socket
-        ssl::stream<tcp::socket&> stream{ socket, ctx };
-
-        // Perform the SSL handshake
-        stream.async_handshake(ssl::stream_base::server, yield[ec]);
-        if (ec)
-            return fail(ec, "handshake");
-
-        // This buffer is required to persist across reads
-        boost::beast::flat_buffer buffer;
-
-        // This lambda is used to send messages
-        send_lambda<ssl::stream<tcp::socket&>> lambda{ stream, close, ec, yield };
-
-        for (;;)
+        void on_run()
         {
-            // Read a request
-            http::request<http::string_body> req;
-            http::async_read(stream, buffer, req, yield[ec]);
+            boost::beast::get_lowest_layer(stream_).expires_after(std::chrono::seconds(30));
+            stream_.async_handshake(ssl::stream_base::server, boost::beast::bind_front_handler(&session::on_handshake, shared_from_this()));
+        }
+
+        void on_handshake(boost::beast::error_code ec)
+        {
+            if (ec)
+                return fail(ec, "handshake");
+
+            do_read();
+        }
+
+        void do_read()
+        {
+            req_ = {};
+            boost::beast::get_lowest_layer(stream_).expires_after(std::chrono::seconds(30));
+            http::async_read(stream_, buffer_, req_, boost::beast::bind_front_handler(&session::on_read, shared_from_this()));
+        }
+
+        void on_read(boost::beast::error_code ec, std::size_t bytes_transferred)
+        {
+            boost::ignore_unused(bytes_transferred);
             if (ec == http::error::end_of_stream)
-                break;
+                return do_close();
+
             if (ec)
                 return fail(ec, "read");
 
-            // Send the response
-            handle_request(server, *doc_root, std::move(req), lambda);
+            handle_request(httpServer_, *doc_root_, std::move(req_), lambda_);
+        }
+
+        void on_write(bool close, boost::beast::error_code ec, std::size_t bytes_transferred)
+        {
+            boost::ignore_unused(bytes_transferred);
+
             if (ec)
                 return fail(ec, "write");
+
             if (close)
-            {
-                // This means we should close the connection, usually because
-                // the response indicated the "Connection: close" semantic.
-                break;
-            }
+                return do_close();
+
+            res_ = nullptr;
+            do_read();
         }
 
-        // Perform the SSL shutdown
-        stream.async_shutdown(yield[ec]);
-        if (ec)
-            return fail(ec, "shutdown");
-
-        // At this point the connection is closed gracefully
-    }
-
-    //------------------------------------------------------------------------------
-
-    // Accepts incoming connections and launches the sessions
-    void do_listen(boost::asio::io_context & ioc, ssl::context & ctx, tcp::endpoint endpoint, std::shared_ptr<std::string const> const& doc_root, libRestApi::HttpServer & server, boost::asio::yield_context yield)
-    {
-        boost::system::error_code ec;
-        tcp::acceptor acceptor(ioc);
-        acceptor.open(endpoint.protocol(), ec);
-        if (ec)
-            return fail(ec, "open");
-
-        acceptor.set_option(boost::asio::socket_base::reuse_address(true), ec);
-        if (ec)
-            return fail(ec, "set_option");
-
-        acceptor.bind(endpoint, ec);
-        if (ec)
-            return fail(ec, "bind");
-
-        acceptor.listen(boost::asio::socket_base::max_listen_connections, ec);
-        if (ec)
-            return fail(ec, "listen");
-
-        for (;;)
+        void do_close()
         {
-            tcp::socket socket(ioc);
-            acceptor.async_accept(socket, yield[ec]);
-            if (ec)
-                fail(ec, "accept");
-            else
-                boost::asio::spawn(acceptor.get_executor(), std::bind(
-                    &do_session,
-                    std::move(socket),
-                    std::ref(ctx),
-                    std::ref(server),
-                    doc_root,
-                    std::placeholders::_1));
+            boost::beast::get_lowest_layer(stream_).expires_after(std::chrono::seconds(30));
+            stream_.async_shutdown(boost::beast::bind_front_handler(&session::on_shutdown,shared_from_this()));
         }
+
+        void on_shutdown(boost::beast::error_code ec)
+        {
+            if (ec)
+                return fail(ec, "shutdown");
+        }
+    };
+}
+
+libRestApi::listener::listener(libRestApi::HttpServer& httpServer, boost::asio::io_context& ioc, ssl::context& ctx, tcp::endpoint endpoint)
+:   httpServer_(httpServer),
+    ioc_(ioc),
+    ctx_(ctx),
+    acceptor_(ioc)
+{
+    boost::beast::error_code ec;
+    acceptor_.open(endpoint.protocol(), ec);
+    if (ec)
+    {
+        fail(ec, "open");
+        return;
     }
+
+    acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
+    if (ec)
+    {
+        fail(ec, "set_option");
+        return;
+    }
+
+    acceptor_.bind(endpoint, ec);
+    if (ec)
+    {
+        fail(ec, "bind");
+        return;
+    }
+
+    acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
+    if (ec)
+    {
+        fail(ec, "listen");
+        return;
+    }
+}
+
+void libRestApi::listener::run()
+{
+    do_accept();
+}
+
+void libRestApi::listener::do_accept()
+{
+    acceptor_.async_accept(boost::asio::make_strand(ioc_), boost::beast::bind_front_handler(&listener::on_accept, shared_from_this()));
+}
+
+void libRestApi::listener::on_accept(boost::beast::error_code ec, tcp::socket socket)
+{
+    if (ec)
+        fail(ec, "accept");
+    else
+        std::make_shared<session>(httpServer_, std::move(socket), ctx_)->run();
+
+    do_accept();
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-libRestApi::HttpServer::HttpServer(const std::string& docRoot)
+libRestApi::HttpServer::HttpServer()
 :   threads_(std::thread::hardware_concurrency()),
-    ioc_(threads_),
-    docRoot_(std::make_shared<std::string>(docRoot))
+    ioc_(threads_)
 {
 }
 
@@ -235,7 +261,17 @@ void libRestApi::HttpServer::start(uint16_t port, HttpHandler httpHandler)
     ssl::context ctx{ ssl::context::tlsv12 };
     load_server_certificate(ctx);
 
-    boost::asio::spawn(ioc_, std::bind(&do_listen, std::ref(ioc_), std::ref(ctx), tcp::endpoint{ boost::asio::ip::make_address("0.0.0.0"), port }, docRoot_, std::ref(*this), std::placeholders::_1));
+    for (int i = 0; i < threads_; i++)
+    {
+        libRestApi::HttpServer::HandlerPair p;
+        p.httpHandler = httpHandler;
+        p.locked = false;
+        handlers_.push_back(std::move(p));
+    }
+
+    listener_ = std::make_shared<listener>(*this, ioc_, ctx, boost::asio::ip::tcp::endpoint{ boost::asio::ip::make_address("0.0.0.0"), port });
+    listener_->run();
+
     workers_.reserve(threads_ - 1);
     for (auto i = threads_ - 1; i > 0; --i)
     {
@@ -243,14 +279,6 @@ void libRestApi::HttpServer::start(uint16_t port, HttpHandler httpHandler)
         {
             ioc_.run(); 
         });
-    }
-
-    for (int i = 0; i < threads_; i++)
-    {
-        libRestApi::HttpServer::HandlerPair p;
-        p.httpHandler = httpHandler;
-        p.locked = false;
-        handlers_.push_back(std::move(p));
     }
 
     ioc_.run();

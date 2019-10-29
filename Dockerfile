@@ -15,9 +15,10 @@ RUN apt-get update && \
     ./bootstrap.sh  && \
     ./b2 install --prefix=/usr --with-filesystem --with-system --with-coroutine  && \
     cd ../..  && \
-    rm -rf boost_1_70_0 && \
-    cd /tmp && \
-    git clone https://github.com/martinmozi/restapi-server.git && \
+    rm -rf boost_1_70_0
+	
+RUN cd /tmp && \
+    git clone https://github.com/martinmozi/restapi-server.git --single-branch --branch async && \
     cd restapi-server && \
     mkdir build && \
     cd build && \

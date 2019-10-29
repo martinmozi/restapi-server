@@ -11,7 +11,7 @@ find_package(OpenSSL REQUIRED)
 find_package (Threads)
 set(Boost_NO_BOOST_CMAKE TRUE CACHE BOOL "" FORCE)
 set(BOOST_MIN_VERSION "1.70.0")
-find_package(Boost ${BOOST_MIN_VERSION} COMPONENTS system coroutine REQUIRED)
+find_package(Boost ${BOOST_MIN_VERSION} COMPONENTS system REQUIRED)
 include_directories(${Boost_INCLUDE_DIR})
 
 add_definitions(-D__RAPID_JSON_BACKEND)
