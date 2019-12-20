@@ -118,6 +118,7 @@ namespace
             doc_root_(std::make_shared<std::string>("/tmp")),
             lambda_(*this)
         {
+            buffer_.reserve(1 * 1024 * 1024); // default 1 Mb buffer
         }
 
         void run()
