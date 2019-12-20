@@ -19,10 +19,10 @@ namespace libRestApi
     {
         httpServer_.reset(new HttpServer);
         std::string basicUrl(basicUrl_);
-        httpServer_->start(port_, [basicUrl, httpHandler](libRestApi::HttpMethod method, const std::string & url, const std::string & request)->std::string
+        httpServer_->start(port_, [basicUrl, httpHandler](libRestApi::HttpMethod method, const std::string url, std::string && request)->std::string
         {
             std::string _url = url.substr(basicUrl.size());
-            return httpHandler(method, _url, request);
+            return httpHandler(method, _url, std::move(request));
         });
     }
 
@@ -31,7 +31,7 @@ namespace libRestApi
         httpServer_.reset(nullptr);
     }
 
-    std::unique_ptr<IRestApiServer> createRestApiServer(int port, const std::string& basicUrl)
+    std::unique_ptr<IRestApiServer> createRestApiServer(int port, const std::string basicUrl)
     {
         return std::make_unique<RestApiServer>(port, basicUrl);
     }

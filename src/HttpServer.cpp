@@ -15,60 +15,6 @@ namespace http = boost::beast::http;    // from <boost/beast/http.hpp>
 
 namespace
 {
-    // This function produces an HTTP response for the given
-        // request. The type of the response object depends on the
-        // contents of the request, so the interface requires the
-        // caller to pass a generic lambda for receiving the response.
-    template<class Body, class Allocator, class Send>
-    void handle_request(libRestApi::HttpServer& server, boost::beast::string_view /*doc_root*/, http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send)
-    {
-        auto const bad_request = [&req](boost::beast::string_view why)
-        {
-            http::response<http::string_body> res{ http::status::bad_request, req.version() };
-            res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-            res.set(http::field::content_type, "text/html");
-            res.keep_alive(req.keep_alive());
-            res.body() = std::string(why);
-            res.prepare_payload();
-            return res;
-        };
-
-        std::string payload;
-        std::string url(req.target());
-        http::verb method = req.method();
-        libRestApi::HttpMethod httpMethod;
-        switch (method)
-        {
-        case http::verb::get:
-            httpMethod = libRestApi::HttpMethod::Get;
-            break;
-
-        case http::verb::post:
-        {
-            payload = req.body();
-            httpMethod = libRestApi::HttpMethod::Post;
-            auto it = req.find(http::field::content_type);
-            if (it == req.end() || it->value() != "application/json")
-                return send(bad_request("Not allowed non json Api"));
-        }
-        break;
-
-        default:
-            return send(bad_request("Unsupported http method"));
-        }
-
-        auto& httpHandlerPair = server.httpHandlerAcquire();
-        std::string response = (httpHandlerPair.httpHandler)(httpMethod, url, payload);
-        server.httpHandlerRelease(httpHandlerPair);
-
-        http::response<http::string_body> res{ http::status::ok, req.version() };
-        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-        res.set(http::field::content_type, "application/json");
-        res.keep_alive(req.keep_alive());
-        res.content_length(response.size());
-        res.body() = response;
-        return send(std::move(res));
-    }
     void fail(boost::beast::error_code ec, char const* what)
     {
         if (ec == boost::asio::ssl::error::stream_truncated)
@@ -106,7 +52,6 @@ namespace
         libRestApi::HttpServer& httpServer_;
         boost::beast::ssl_stream<boost::beast::tcp_stream> stream_;
         boost::beast::flat_buffer buffer_;
-        std::shared_ptr<std::string const> doc_root_;
         http::request<http::string_body> req_;
         std::shared_ptr<void> res_;
         send_lambda lambda_;
@@ -115,7 +60,6 @@ namespace
         explicit session(libRestApi::HttpServer& httpServer, boost::asio::ip::tcp::socket&& socket, ssl::context& ctx)
         :   httpServer_(httpServer),
             stream_(std::move(socket), ctx),
-            doc_root_(std::make_shared<std::string>("/tmp")),
             lambda_(*this)
         {
             buffer_.reserve(1 * 1024 * 1024); // default 1 Mb buffer
@@ -156,7 +100,7 @@ namespace
             if (ec)
                 return fail(ec, "read");
 
-            handle_request(httpServer_, *doc_root_, std::move(req_), lambda_);
+            handle_request(std::move(req_));
         }
 
         void on_write(bool close, boost::beast::error_code ec, std::size_t bytes_transferred)
@@ -183,6 +127,56 @@ namespace
         {
             if (ec)
                 return fail(ec, "shutdown");
+        }
+
+    private:
+        template<class Body, class Allocator>
+        void handle_request(http::request<Body, http::basic_fields<Allocator>>&& req)
+        {
+            auto const bad_request = [&req](boost::beast::string_view why)
+            {
+                http::response<http::string_body> res{ http::status::bad_request, req.version() };
+                res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+                res.set(http::field::content_type, "text/html");
+                res.keep_alive(req.keep_alive());
+                res.body() = std::string(why);
+                res.prepare_payload();
+                return res;
+            };
+
+            std::string url(req.target());
+            http::verb method = req.method();
+            libRestApi::HttpMethod httpMethod;
+            switch (method)
+            {
+            case http::verb::get:
+                httpMethod = libRestApi::HttpMethod::Get;
+                break;
+
+            case http::verb::post:
+            {
+                httpMethod = libRestApi::HttpMethod::Post;
+                auto it = req.find(http::field::content_type);
+                if (it == req.end() || it->value() != "application/json")
+                    return lambda_(bad_request("Not allowed non json Api"));
+            }
+            break;
+
+            default:
+                return lambda_(bad_request("Unsupported http method"));
+            }
+
+            auto& httpHandlerPair = httpServer_.httpHandlerAcquire();
+            std::string response = (httpHandlerPair.httpHandler)(httpMethod, url, std::move(req.body()));
+            httpServer_.httpHandlerRelease(httpHandlerPair);
+
+            http::response<http::string_body> res{ http::status::ok, req.version() };
+            res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+            res.set(http::field::content_type, "application/json");
+            res.keep_alive(req.keep_alive());
+            res.content_length(response.size());
+            res.body() = response;
+            return lambda_(std::move(res));
         }
     };
 }
