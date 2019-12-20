@@ -12,7 +12,7 @@ namespace libRestApi
         Post
     };
 
-    using HttpHandler = std::function<std::string(HttpMethod, const std::string&, const std::string&)>;
+    using HttpHandler = std::function<std::string(HttpMethod, const std::string, std::string&&)>;
     class IRestApiServer
     {
     public:
@@ -23,5 +23,5 @@ namespace libRestApi
         virtual void stop() {}
     };
 
-    std::unique_ptr<IRestApiServer> createRestApiServer(int port, const std::string& basicUrl);
+    std::unique_ptr<IRestApiServer> createRestApiServer(int port, const std::string basicUrl);
 }
