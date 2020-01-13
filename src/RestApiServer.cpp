@@ -18,10 +18,13 @@ namespace libRestApi
     void RestApiServer::start(HttpHandler&& httpHandler)
     {
         httpServer_.reset(new HttpServer);
-        std::string basicUrl(basicUrl_);
-        httpServer_->start(port_, [basicUrl, httpHandler](libRestApi::HttpMethod method, const std::string url, std::string && request)->std::string
+        size_t sz = basicUrl_.size();
+        httpServer_->start(port_, [sz, httpHandler](libRestApi::HttpMethod method, const std::string url, std::string && request)->std::string
         {
-            std::string _url = url.substr(basicUrl.size());
+            std::string _url;
+            if (url.size() >= sz)
+                std::string _url = url.substr(sz);
+
             return httpHandler(method, _url, std::move(request));
         });
     }
